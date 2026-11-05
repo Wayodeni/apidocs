@@ -1,6 +1,6 @@
 services:
   yaade:
-    image: esperotech/yaade:latest@sha256:24d2d692d948bb09c69d55171cdd9d1bfd9dff041d485fb170430365903226b9
+    build: ./yaade
     restart: always
     environment:
       YAADE_ADMIN_USERNAME: "${YAADE_ADMIN_USERNAME:-admin}"
