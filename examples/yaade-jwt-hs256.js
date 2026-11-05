@@ -1,5 +1,21 @@
-// Вставьте весь файл во вкладку Request Script в Yaade.
-// Окружение коллекции должно содержать jwt_payload и jwt_secret.
+// Вставьте весь файл во вкладку Request Script в сборке Yaade из этого репозитория.
+const secret = 'ЗАМЕНИТЕ_НА_ТЕСТОВЫЙ_КЛЮЧ';
+const rawJson = ''.constructor.raw;
+
+const jwtHeader = rawJson`{
+    "alg": "HS256",
+    "typ": "JWT"
+}`;
+
+const jwtPayload = rawJson`{
+    "sub": "42",
+    "role": "editor"
+}`;
+
+const httpHeader = {
+    name: 'Authorization',
+    scheme: 'Bearer',
+};
 
 function fail(message) {
     throw {
@@ -10,42 +26,48 @@ function fail(message) {
     };
 }
 
+function parseJsonObject(value, label) {
+    let object;
+    try {
+        object = jp('$', value);
+    } catch {
+        fail(label + ' должен содержать корректный JSON');
+    }
+    if (!object || typeof object !== 'object' || [].constructor.isArray(object)) {
+        fail(label + ' должен содержать объект JSON');
+    }
+    return object;
+}
+
 function base64url(binary) {
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-if (!env.name) {
-    fail('Выберите окружение коллекции с настройками JWT');
+function encodeJson(value) {
+    // Экранирование сохраняет значения JSON и позволяет кодировать Unicode через btoa.
+    const ascii = value.replace(/[^\x00-\x7F]/g, character =>
+        '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')
+    );
+    return base64url(ascii);
 }
 
-const payload = env.get('jwt_payload');
-const secret = env.get('jwt_secret');
-if (typeof secret !== 'string' || !secret.trim()) {
-    fail('Задайте jwt_secret в выбранном окружении');
+if (typeof req.setHeader !== 'function') {
+    fail('Пересоберите Yaade из этого репозитория для поддержки req.setHeader');
 }
-if (typeof payload !== 'string' || !payload.trim()) {
-    fail('Задайте jwt_payload в выбранном окружении');
+if (typeof secret !== 'string' || !secret.trim() || secret === 'ЗАМЕНИТЕ_НА_ТЕСТОВЫЙ_КЛЮЧ') {
+    fail('Задайте тестовый ключ подписи в secret');
 }
+if (parseJsonObject(jwtHeader, 'Заголовок JWT').alg !== 'HS256') {
+    fail('В заголовке JWT укажите алгоритм HS256');
+}
+parseJsonObject(jwtPayload, 'Тело JWT');
 
-let claims;
-try {
-    claims = jp('$', payload);
-} catch {
-    fail('jwt_payload должен содержать корректный JSON');
-}
-if (!claims || typeof claims !== 'object' || [].constructor.isArray(claims)) {
-    fail('jwt_payload должен содержать объект JSON');
-}
-
-// Экранирование сохраняет значения JSON и позволяет кодировать Unicode через btoa.
-const asciiPayload = payload.replace(/[^\x00-\x7F]/g, character =>
-    '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')
-);
-const header = base64url('{"alg":"HS256","typ":"JWT"}');
-const signingInput = header + '.' + base64url(asciiPayload);
+const signingInput = encodeJson(jwtHeader) + '.' + encodeJson(jwtPayload);
 const signature = loadSha256().hmac.array(secret, signingInput);
 const binarySignature = ''.constructor.fromCharCode(...signature);
-env.set('jwt', signingInput + '.' + base64url(binarySignature));
+const jwt = signingInput + '.' + base64url(binarySignature);
+const prefix = httpHeader.scheme ? httpHeader.scheme + ' ' : '';
+req.setHeader(httpHeader.name, prefix + jwt);
 
 function loadSha256() {
     // Браузерная сборка js-sha256 использует массивы в песочнице Yaade.

@@ -13,7 +13,7 @@ def write(path, content):
 
 def replace_once(content, original, replacement):
     if content.count(original) != 1:
-        raise SystemExit('Unexpected Yaade web assets. Review the response display patch.')
+        raise SystemExit('Unexpected Yaade web assets. Review patch anchor: ' + repr(original))
     return content.replace(original, replacement, 1)
 
 
@@ -77,6 +77,55 @@ bundle = replace_once(
         jsx(ReactCodeMirror,{height:'100%',extensions:l,theme:t,value:display.body,editable:false})
     ]})''',
 )
+
+# Keep script headers scoped to one send and apply them after interpolation and built-in auth.
+script_header_helpers = br'''
+function setRequestScriptHeader(headers, name, value) {
+    if (typeof name !== 'string' || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) {
+        throw new Error('Invalid HTTP header name');
+    }
+    if (typeof value !== 'string' || /[\x00-\x08\x0a-\x1f\x7f]/.test(value)) {
+        throw new Error('Invalid HTTP header value');
+    }
+    headers.set(name.toLowerCase(), {key: name, value, isEnabled: true});
+}
+
+function applyRequestScriptHeaders(request, headers) {
+    if (!headers.size) return;
+    request.data.headers = [
+        ...(request.data.headers ?? []).filter(row => !headers.has(row.key.toLowerCase())),
+        ...headers.values(),
+    ];
+}
+'''
+bundle = replace_once(
+    bundle,
+    b'async function executeRequestScript(e,t,s,n,o,i,l){',
+    script_header_helpers + b'async function executeRequestScript(e,t,s,n,o,i,l,scriptHeaders){',
+)
+bundle = replace_once(
+    bundle,
+    b'headers:kvRowsToMap((a=e.data.headers)!=null?a:[])},c.jp=jpath',
+    b'headers:kvRowsToMap((a=e.data.headers)!=null?a:[]),'
+    b'setHeader:(name,value)=>setRequestScriptHeader(scriptHeaders,name,value)},c.jp=jpath',
+)
+for original, replacement in (
+    (b'async function B(O,N,R){var', b'async function B(O,N,R){const scriptHeaders=new Map();var'),
+    (b'le.requestScript,!0,N,R)}if(te.data.requestScript)',
+     b'le.requestScript,!0,N,R,scriptHeaders)}if(te.data.requestScript)'),
+    (b'await P(te,te.data.requestScript,!1,N,R)', b'await P(te,te.data.requestScript,!1,N,R,scriptHeaders)'),
+    (b'case"server":Y=await k(te,N);', b'case"server":Y=await k(te,N,scriptHeaders);'),
+    (b'Q.timeout);break;default:throw Error("Unknown proxy")',
+     b'Q.timeout,scriptHeaders);break;default:throw Error("Unknown proxy")'),
+    (b'async function P(O,N,R,V,J){await executeRequestScript',
+     b'async function P(O,N,R,V,J,scriptHeaders){await executeRequestScript'),
+    (b'await B(oe,Y,J+1)},R,V)}', b'await B(oe,Y,J+1)},R,V,scriptHeaders)}'),
+    (b'async function C(O,N,R=5){return new Promise', b'async function C(O,N,R=5,scriptHeaders){return new Promise'),
+    (b'}switch(X.data.contentType){', b'}applyRequestScriptHeaders(X,scriptHeaders);switch(X.data.contentType){'),
+    (b'async function k(O,N){var R,V;', b'async function k(O,N,scriptHeaders){var R,V;'),
+    (b'}switch(O.data.contentType){', b'}applyRequestScriptHeaders(O,scriptHeaders);switch(O.data.contentType){'),
+):
+    bundle = replace_once(bundle, original, replacement)
 
 patched_asset = b'assets/index.' + sha256(bundle).hexdigest()[:12].encode('ascii') + b'.js'
 index = replace_once(read('index.html'), asset, patched_asset)
