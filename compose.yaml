@@ -1,0 +1,49 @@
+services:
+  yaade:
+    image: esperotech/yaade:latest@sha256:24d2d692d948bb09c69d55171cdd9d1bfd9dff041d485fb170430365903226b9
+    restart: always
+    environment:
+      YAADE_ADMIN_USERNAME: "${YAADE_ADMIN_USERNAME:-admin}"
+      YAADE_DEFAULT_PASSWORD: "${YAADE_DEFAULT_PASSWORD:?Set YAADE_DEFAULT_PASSWORD in .env}"
+    volumes:
+      - yaade-data:/app/data
+
+  nginx:
+    image: nginx:1.30.6-alpine
+    command: [nginx, -g, "daemon off; load_module modules/ngx_http_js_module.so;"]
+    restart: always
+    depends_on:
+      - yaade
+    environment:
+      NGINX_ENVSUBST_FILTER: "^YAADE_HTTPS_PORT$$"
+      YAADE_HTTPS_PORT: "${YAADE_HTTPS_PORT:-9443}"
+    ports:
+      - "${YAADE_BIND_IP:-127.0.0.1}:${YAADE_HTTP_PORT:-9339}:80"
+      - "${YAADE_BIND_IP:-127.0.0.1}:${YAADE_HTTPS_PORT:-9443}:443"
+    volumes:
+      - type: bind
+        source: ./nginx/yaade.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./certs
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./nginx/login-guard.js
+        target: /etc/nginx/login-guard.js
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./logs/nginx
+        target: /var/log/nginx/yaade
+        bind:
+          create_host_path: false
+
+volumes:
+  yaade-data:
