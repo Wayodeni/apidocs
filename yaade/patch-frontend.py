@@ -109,10 +109,29 @@ bundle = replace_once(
     b'headers:kvRowsToMap((a=e.data.headers)!=null?a:[]),'
     b'setHeader:(name,value)=>setRequestScriptHeader(scriptHeaders,name,value)},c.jp=jpath',
 )
+
+bundle = replace_once(
+    bundle,
+    b'if(ne&&(X=ne.proxy),(ee=V==null?void 0:V.data)==null?void 0:ee.requestScript){'
+    b'if(X==="ext"&&getMinorVersion(i.current)<3)throw Error(`Request scripts are not supported '
+    b'in this version of the extension. \n'
+    b'              Please update to the latest version or remove the request script.`);'
+    b'await P(te,(le=V==null?void 0:V.data)==null?void 0:le.requestScript,!0,N,R)}',
+    b'''if (ne) X = ne.proxy;
+    for (const collection of getParentTree(s, te.collectionId).reverse()) {
+        const script = collection.data?.requestScript;
+        if (!script) continue;
+        if (X === "ext" && getMinorVersion(i.current) < 3) {
+            throw Error("Request scripts are not supported in this version of the extension. "
+                + "Please update to the latest version or remove the request script.");
+        }
+        await P(te, script, true, N, R, scriptHeaders);
+    }
+    ''',
+)
 for original, replacement in (
-    (b'async function B(O,N,R){var', b'async function B(O,N,R){const scriptHeaders=new Map();var'),
-    (b'le.requestScript,!0,N,R)}if(te.data.requestScript)',
-     b'le.requestScript,!0,N,R,scriptHeaders)}if(te.data.requestScript)'),
+    (b'async function B(O,N,R){var oe,ee,le,',
+     b'async function B(O,N,R){const scriptHeaders=new Map();var oe,'),
     (b'await P(te,te.data.requestScript,!1,N,R)', b'await P(te,te.data.requestScript,!1,N,R,scriptHeaders)'),
     (b'case"server":Y=await k(te,N);', b'case"server":Y=await k(te,N,scriptHeaders);'),
     (b'Q.timeout);break;default:throw Error("Unknown proxy")',
