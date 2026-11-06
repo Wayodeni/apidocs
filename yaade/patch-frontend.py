@@ -23,10 +23,70 @@ bundle = read(asset)
 bundle = replace_once(
     bundle,
     b'return{headers:t,body:n,status:e.status,time:e.time,size:o,date:l}',
-    b'return{headers:t,body:n,rawBody:n===e.body?void 0:e.body,status:e.status,time:e.time,size:o,date:l}',
+    b'return{headers:t,body:n,rawBody:n===e.body?void 0:e.body,bodyBase64:e.bodyBase64,'
+    b'status:e.status,time:e.time,size:o,date:l}',
 )
 
 display_helper = br'''
+const responseFileExtensions = new Map([
+    ['application/gzip', 'gz'],
+    ['application/json', 'json'],
+    ['application/msword', 'doc'],
+    ['application/octet-stream', 'bin'],
+    ['application/pdf', 'pdf'],
+    ['application/vnd.ms-excel', 'xls'],
+    ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'],
+    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'],
+    ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'pptx'],
+    ['application/xml', 'xml'],
+    ['application/x-tar', 'tar'],
+    ['application/zip', 'zip'],
+    ['audio/mpeg', 'mp3'],
+    ['image/gif', 'gif'],
+    ['image/jpeg', 'jpg'],
+    ['image/png', 'png'],
+    ['image/svg+xml', 'svg'],
+    ['image/webp', 'webp'],
+    ['text/csv', 'csv'],
+    ['text/html', 'html'],
+    ['text/plain', 'txt'],
+    ['text/xml', 'xml'],
+    ['video/mp4', 'mp4'],
+]);
+
+function getResponseFilename(headers, mediaType) {
+    const disposition = headers.find(row => row.key.toLowerCase() === 'content-disposition')?.value ?? '';
+    const encoded = /(?:^|;)\s*filename\*\s*=\s*utf-8'[^']*'([^;]+)/i.exec(disposition);
+    const plain = /(?:^|;)\s*filename\s*=\s*(?:"((?:\\.|[^"\\])*)"|([^;]+))/i.exec(disposition);
+    let filename = plain?.[1]?.replace(/\\(["\\])/g, '$1') ?? plain?.[2];
+    if (encoded) {
+        try {
+            filename = decodeURIComponent(encoded[1].trim());
+        } catch {
+            // A malformed extended parameter leaves the plain filename available.
+        }
+    }
+    filename = filename?.split(/[/\\]/).pop().replace(/[\x00-\x1f\x7f]/g, '').trim();
+    if (filename && filename !== '.' && filename !== '..') return filename;
+
+    const extension = responseFileExtensions.get(mediaType)
+        ?? (mediaType.endsWith('+json') ? 'json' : mediaType.endsWith('+xml') ? 'xml' : 'bin');
+    return 'response.' + extension;
+}
+
+function downloadResponseBody(response, contentType) {
+    const mediaType = contentType.split(';', 1)[0].trim().toLowerCase() || 'application/octet-stream';
+    const bytes = Uint8Array.from(atob(response.bodyBase64), character => character.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], {type: mediaType}));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = getResponseFilename(response.headers, mediaType);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function getResponseBodyDisplay(response, contentType, mode) {
     const body = response?.body ?? '';
     const rawBody = response?.rawBody ?? body;
@@ -74,6 +134,8 @@ bundle = replace_once(
                 jsx('option', {value:'json', children:'JSON'}),
                 jsx('option', {value:'plain', children:'Plain'})
             ]}),
+        e.bodyBase64 && jsx(Button, {size:'xs', mb:2, ml:2,
+            onClick:() => downloadResponseBody(e, contentType), children:'Download'}),
         jsx(ReactCodeMirror,{height:'100%',extensions:l,theme:t,value:display.body,editable:false})
     ]})''',
 )
